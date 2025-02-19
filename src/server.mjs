@@ -1,8 +1,8 @@
 import http from 'http';
 import { createTextEvent, createDoneEvent } from '@copilot-extensions/preview-sdk';
 
-const hostname = '0.0.0.0'; // Change this to bind to all network interfaces
-const port = 8080;
+const hostname = '127.0.0.1';
+const port = 3000;
 
 const server = http.createServer((req, res) => {
     if (req.method === 'GET') {

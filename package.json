@@ -1,0 +1,16 @@
+{
+  "name": "my-es-module-project",
+  "version": "1.0.0",
+  "description": "A project that creates an HTTP server using ES modules.",
+  "main": "src/server.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "@copilot-extensions/preview-sdk": "^5.0.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
