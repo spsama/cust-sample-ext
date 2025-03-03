@@ -23,8 +23,8 @@ const server = http.createServer((req, res) => {
             // Process the input data as needed
             const inputData = JSON.parse(body);
 
-            // Access messages.content from inputData.message
-            const messageContent = inputData.message?.messages?.content;
+            // Access the first content key value from the messages array
+            const messageContent = inputData.messages?.[0]?.content;
 
             if (!messageContent) {
                 res.statusCode = 400;
