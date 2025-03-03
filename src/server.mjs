@@ -23,12 +23,22 @@ const server = http.createServer((req, res) => {
             // Process the input data as needed
             const inputData = JSON.parse(body);
 
+            // Access messages.content from inputData.message
+            const messageContent = inputData.message?.messages?.content;
+
+            if (!messageContent) {
+                res.statusCode = 400;
+                res.setHeader('Content-Type', 'text/plain');
+                res.end('Bad Request: Missing messages.content\n');
+                return;
+            }
+
             // Example: Use the input data with the custom extension
-            const textEvent = createTextEvent(inputData.message);
+            const textEvent = createTextEvent(messageContent);
             const doneEvent = createDoneEvent();
 
             // Make a POST request to another endpoint with the input data
-            const postData = inputData.message; // Sending plain text
+            const postData = messageContent; // Sending plain text
 
             const options = {
                 hostname: 'probable-happiness-975v7rq979rv3xr46-8080.app.github.dev', // Replace with the target hostname
