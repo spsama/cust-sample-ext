@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { Octokit } from "octokit";
+import { Octokit } from "@octokit/rest";
+import https from 'https';
 import {
   createAckEvent,
   createDoneEvent,
