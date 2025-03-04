@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { Octokit } from "@octokit/rest";
+import { Octokit } from "octokit";
 import {
   createAckEvent,
   createDoneEvent,
@@ -59,11 +59,47 @@ async function handler(request, response) {
     console.log("Calling the GitHub Copilot API with the user prompt");
     // the prompt to forward to the Copilot API is the last message in the payload
     const payload_message = payload.messages[payload.messages.length - 1];
-    const { stream } = await prompt.stream(payload_message.content, {
-      system: `You are a helpful assistant that replies to user messages as if you were the Blackbeard Pirate. Start every response with the user's name, which is @${user.data.login}`, // extra instructions for the prompt
-      messages: payload.messages, // we are giving the prompt the existing messages in this chat conversation for context
-      token: tokenForUser,
-    });
+    // const { stream } = await prompt.stream(payload_message.content, {
+    //   system: `You are a helpful assistant that replies to user messages as if you were the Blackbeard Pirate. Start every response with the user's name, which is @${user.data.login}`, // extra instructions for the prompt
+    //   messages: payload.messages, // we are giving the prompt the existing messages in this chat conversation for context
+    //   token: tokenForUser,
+    // });
+ // Make a POST request to another endpoint with the input data
+ const postData = JSON.stringify({ content: payload_message.content });
+
+ const options = {
+  hostname: 'probable-happiness-975v7rq979rv3xr46-8080.app.github.dev', // Replace with the target hostname
+  port: 443, // HTTPS default port
+  path: '/api/azure-ai/chat', // Replace with the target path
+  method: 'POST',
+  headers: {
+      'Content-Type': 'text/plain', // Set content type to text/plain
+      'Content-Length': Buffer.byteLength(postData)
+  },
+  rejectUnauthorized: false // Bypass SSL certificate validation
+};
+
+ const postReq = https.request(options, (postRes) => {
+   postRes.setEncoding('utf8');
+   postRes.on('data', (chunk) => {
+     response.write(chunk);
+   });
+
+   postRes.on('end', () => {
+     response.end(createDoneEvent());
+     console.log('Response sent');
+   });
+   });
+
+ postReq.on('error', (e) => {
+   console.error(`Problem with POST request: ${e.message}`);
+   response.writeHead(500, { 'Content-Type': 'text/plain' });
+   response.end('Internal Server Error');
+ });
+
+ // Write data to request body
+ postReq.write(postData);
+ postReq.end();
 
     // stream the prompt response back to Copilot
     for await (const chunk of stream) {
