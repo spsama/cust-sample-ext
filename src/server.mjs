@@ -1,90 +1,108 @@
-import http from 'http';
-import https from 'https';
-import { createTextEvent, createDoneEvent } from '@copilot-extensions/preview-sdk';
+import { createServer } from "node:http";
+import { Octokit } from "@octokit/rest";
+import {
+  createAckEvent,
+  createDoneEvent,
+  prompt,
+  verifyAndParseRequest,
+} from "@copilot-extensions/preview-sdk";
 
-const hostname = '127.0.0.1';
-const port = 3000;
+// Define the port to listen on
+const PORT = 3000;
 
-const server = http.createServer((req, res) => {
-    if (req.method === 'GET') {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('Hello, World!\n');
-    } else if (req.method === 'POST') {
-        let body = '';
+// Define the handler function
+async function handler(request, response) {
+  console.log(`Received [${request.method}] to [${request.url}]`);
 
-        req.on('data', chunk => {
-            body += chunk.toString();
-        });
+  if (request.method !== "POST") {
+    // Handle other request methods if necessary
+    response.writeHead(405, { "Content-Type": "text/plain" });
+    console.log(`Method ${request.method} not allowed`);
 
-        req.on('end', () => {
-            console.log('Received input:', body);
+    response.end("Method Not Allowed");
+    return;
+  }
 
-            // Process the input data as needed
-            const inputData = JSON.parse(body);
+  // get a token to use
+  const tokenForUser = request.headers["x-github-token"];
 
-            // Access the first content key value from the messages array
-            const messageContent = inputData.messages?.[0]?.content;
+  // get the user information with the token
+  const octokit = new Octokit({ auth: tokenForUser });
+  const user = await octokit.request("GET /user");
 
-            if (!messageContent) {
-                res.statusCode = 400;
-                res.setHeader('Content-Type', 'text/plain');
-                res.end('Bad Request: Missing messages.content\n');
-                return;
-            }
+  // Collect incoming data chunks to use in the `on("end")` event
+  const body = await getBody(request);
+  const signature = String(request.headers["github-public-key-signature"]);
+  const keyID = String(request.headers["github-public-key-identifier"]);
 
-            // Example: Use the input data with the custom extension
-            const textEvent = createTextEvent(messageContent);
-            const doneEvent = createDoneEvent();
+  try {
+    const { isValidRequest, payload } = await verifyAndParseRequest(
+      body,
+      signature,
+      keyID,
+      {
+        token: tokenForUser,
+      },
+    );
 
-            // Make a POST request to another endpoint with the input data
-            const postData = messageContent; // Sending plain text
-
-            const options = {
-                hostname: 'probable-happiness-975v7rq979rv3xr46-8080.app.github.dev', // Replace with the target hostname
-                port: 443, // HTTPS default port
-                path: '/api/azure-ai/chat', // Replace with the target path
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain', // Set content type to text/plain
-                    'Content-Length': Buffer.byteLength(postData)
-                },
-                rejectUnauthorized: false // Bypass SSL certificate validation
-            };
-
-            const postReq = https.request(options, (postRes) => {
-                let responseData = '';
-
-                postRes.on('data', (chunk) => {
-                    responseData += chunk;
-                });
-
-                postRes.on('end', () => {
-                    console.log('Response from POST request:', responseData);
-                    res.statusCode = 200;
-                    res.setHeader('Content-Type', 'text/plain');
-                    res.end(responseData);
-                });
-            });
-
-            postReq.on('error', (e) => {
-                console.error(`Problem with POST request: ${e.message}`);
-                res.statusCode = 500;
-                res.setHeader('Content-Type', 'text/plain');
-                res.end('Internal Server Error\n');
-            });
-
-            // Write data to request body
-            postReq.write(postData);
-            postReq.end();
-        });
-    } else {
-        res.statusCode = 405;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('Method Not Allowed\n');
+    if (!isValidRequest) {
+      console.error("Request verification failed");
+      response.writeHead(401, { "Content-Type": "text/plain" });
+      response.end("Request could not be verified");
+      return;
     }
-});
 
-server.listen(port, hostname, () => {
-    console.log(`Server running at http://${hostname}:${port}/`);
-});
+    // write the acknowledge event to let Copilot know we are handling the request
+    // this will also show the message "Copilot is responding" in the chat
+    response.write(createAckEvent());
+
+    console.log("Calling the GitHub Copilot API with the user prompt");
+    // the prompt to forward to the Copilot API is the last message in the payload
+    const payload_message = payload.messages[payload.messages.length - 1];
+    const { stream } = await prompt.stream(payload_message.content, {
+      system: `You are a helpful assistant that replies to user messages as if you were the Blackbeard Pirate. Start every response with the user's name, which is @${user.data.login}`, // extra instructions for the prompt
+      messages: payload.messages, // we are giving the prompt the existing messages in this chat conversation for context
+      token: tokenForUser,
+    });
+
+    // stream the prompt response back to Copilot
+    for await (const chunk of stream) {
+      response.write(new TextDecoder().decode(chunk));
+    }
+
+    // write the done event to let Copilot know we are done handling the request
+    response.end(createDoneEvent());
+    console.log("Response sent");
+  } catch (error) {
+    console.error("Error:", error);
+    response.writeHead(500, { "Content-Type": "text/plain" });
+    response.end("Internal Server Error");
+  }
+}
+
+// Create an HTTP server
+const server = createServer(handler);
+
+// Start the server
+server.listen(PORT);
+console.log(`Server started at http://localhost:${PORT}`);
+
+/**
+ *
+ * @param {import("node:http").IncomingMessage} request
+ * @returns
+ */
+function getBody(request) {
+  return new Promise((resolve) => {
+    const bodyParts = [];
+    let body;
+    request
+      .on("data", (chunk) => {
+        bodyParts.push(chunk);
+      })
+      .on("end", () => {
+        body = Buffer.concat(bodyParts).toString();
+        resolve(body);
+      });
+  });
+}
