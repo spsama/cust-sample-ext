@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { Octokit } from "@octokit/rest";
+import { pipeline } from 'stream';
 import https from 'https';
 import {
   createAckEvent,
@@ -80,36 +81,33 @@ async function handler(request, response) {
   rejectUnauthorized: false // Bypass SSL certificate validation
 };
 
- const postReq = https.request(options, (postRes) => {
-   postRes.setEncoding('utf8');
-   postRes.on('data', (chunk) => {
-     response.write(chunk);
-   });
+const postReq = https.request(options, (postRes) => {
+  postRes.setEncoding('utf8');
+  pipeline(postRes, response, (err) => {
+    if (err) {
+      console.error('Pipeline failed', err);
+      response.writeHead(500, { 'Content-Type': 'text/plain' });
+      response.end('Internal Server Error');
+    } else {
+      response.end(createDoneEvent());
+      console.log('Response sent',response.body);
+    }
+  });
+});
 
-   postRes.on('end', () => {
-     response.end(createDoneEvent());
-     console.log('Response sent');
-   });
-   });
-
- postReq.on('error', (e) => {
-   console.error(`Problem with POST request: ${e.message}`);
-   response.writeHead(500, { 'Content-Type': 'text/plain' });
-   response.end('Internal Server Error');
- });
 
  // Write data to request body
  postReq.write(postData);
  postReq.end();
 
-    // stream the prompt response back to Copilot
-    for await (const chunk of stream) {
-      response.write(new TextDecoder().decode(chunk));
-    }
+    // // stream the prompt response back to Copilot
+    // for await (const chunk of stream) {
+    //   response.write(new TextDecoder().decode(chunk));
+    // }
 
-    // write the done event to let Copilot know we are done handling the request
-    response.end(createDoneEvent());
-    console.log("Response sent");
+    // // write the done event to let Copilot know we are done handling the request
+    // response.end(createDoneEvent());
+    // console.log("Response sent");
   } catch (error) {
     console.error("Error:", error);
     response.writeHead(500, { "Content-Type": "text/plain" });
